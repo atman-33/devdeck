@@ -5,6 +5,7 @@ mod app;
 mod git;
 mod models;
 mod storage;
+mod theme;
 
 use eframe::egui;
 
@@ -21,6 +22,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx);
             Ok(Box::new(app::DevDeckApp::new()))
         }),
     )

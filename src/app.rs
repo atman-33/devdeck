@@ -1,7 +1,7 @@
 use crate::models::{now_unix, time_ago, Config, GitInfo, Preset, Project, Settings, SortMode};
-use crate::{actions, git, storage};
+use crate::{actions, git, storage, theme};
 use eframe::egui;
-use egui::{Color32, RichText};
+use egui::RichText;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -192,6 +192,13 @@ impl DevDeckApp {
             .collect()
     }
 
+    fn toggle_selected(&mut self, path: &str) {
+        if !self.selected.remove(path) {
+            self.selected.insert(path.to_string());
+        }
+        self.dirty = true;
+    }
+
     fn open_selected_in_vscode(&mut self) {
         let paths = self.selected_paths();
         match actions::open_in_vscode(&self.cfg.settings.vscode_cmd, &paths) {
@@ -205,15 +212,74 @@ impl DevDeckApp {
 
     // ---- UI ----
 
+    fn header(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("🗀").size(22.0).color(theme::ACCENT));
+            ui.label(
+                RichText::new("DevDeck")
+                    .size(19.0)
+                    .strong()
+                    .color(theme::TEXT),
+            );
+            ui.label(
+                RichText::new("developer workspace manager")
+                    .size(11.5)
+                    .color(theme::TEXT_DIM),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button(RichText::new("⚙").size(16.0))
+                    .on_hover_text("Settings")
+                    .clicked()
+                {
+                    self.settings_draft = self.cfg.settings.clone();
+                    self.show_settings = true;
+                }
+                let n = self.selected.len();
+                let label = if n <= 1 {
+                    "▶ Open in VS Code".to_string()
+                } else {
+                    format!("▶ Open {n} in VS Code")
+                };
+                if theme::primary_button(ui, n > 0, &label)
+                    .on_hover_text("open the selected projects as one VS Code workspace")
+                    .clicked()
+                {
+                    self.open_selected_in_vscode();
+                }
+                if n > 0 {
+                    if ui
+                        .button("✖ Clear")
+                        .on_hover_text("clear selection")
+                        .clicked()
+                    {
+                        self.selected.clear();
+                        self.dirty = true;
+                    }
+                    ui.label(
+                        RichText::new(format!("{n} selected"))
+                            .color(theme::ACCENT)
+                            .strong(),
+                    );
+                }
+            });
+        });
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            if ui.button("➕ Add projects").clicked() {
+            if ui.button("➕ Add").on_hover_text("register local project folders").clicked() {
                 self.add_projects();
             }
-            if ui.button("🔄 Refresh").clicked() {
+            if ui.button("🔄 Refresh").on_hover_text("re-read git status of all projects").clicked() {
                 self.refresh_all();
             }
-            if ui.button("⬇ Fetch all").clicked() {
+            if ui
+                .button("⬇ Fetch all")
+                .on_hover_text("git fetch every project (updates the pull-needed badges)")
+                .clicked()
+            {
                 let paths: Vec<String> =
                     self.cfg.projects.iter().map(|p| p.path.clone()).collect();
                 for p in paths {
@@ -222,55 +288,38 @@ impl DevDeckApp {
             }
 
             ui.separator();
-
-            let n = self.selected.len();
-            let open_btn = egui::Button::new(
-                RichText::new(format!("🚀 Open in VS Code ({n})")).strong(),
-            );
-            if ui.add_enabled(n > 0, open_btn).clicked() {
-                self.open_selected_in_vscode();
-            }
-            if n > 0 && ui.button("Clear selection").clicked() {
-                self.selected.clear();
-                self.dirty = true;
-            }
-
-            ui.separator();
             self.preset_controls(ui);
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("⚙ Settings").clicked() {
-                    self.settings_draft = self.cfg.settings.clone();
-                    self.show_settings = true;
-                }
-            });
-        });
+            ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("🔍");
             ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("filter by name/path")
-                    .desired_width(180.0),
+                    .hint_text("🔍 search name / path")
+                    .desired_width(170.0),
             );
-            ui.label("🏷");
             ui.add(
                 egui::TextEdit::singleline(&mut self.tag_filter)
-                    .hint_text("filter by tag")
-                    .desired_width(120.0),
+                    .hint_text("🏷 tag")
+                    .desired_width(90.0),
             );
-            ui.checkbox(&mut self.favorites_only, "★ favorites only");
-            ui.separator();
-            ui.label("Sort:");
             if ui
-                .selectable_label(self.cfg.sort == SortMode::Name, "Name")
+                .selectable_label(self.favorites_only, "★ favorites")
+                .clicked()
+            {
+                self.favorites_only = !self.favorites_only;
+            }
+
+            ui.separator();
+            ui.label(RichText::new("sort").color(theme::TEXT_DIM).size(11.5));
+            if ui
+                .selectable_label(self.cfg.sort == SortMode::Name, "name")
                 .clicked()
             {
                 self.cfg.sort = SortMode::Name;
                 self.dirty = true;
             }
             if ui
-                .selectable_label(self.cfg.sort == SortMode::Recent, "Recent")
+                .selectable_label(self.cfg.sort == SortMode::Recent, "recent")
                 .clicked()
             {
                 self.cfg.sort = SortMode::Recent;
@@ -286,17 +335,25 @@ impl DevDeckApp {
             .show_ui(ui, |ui| {
                 let presets = self.cfg.presets.clone();
                 if presets.is_empty() {
-                    ui.label("(no presets yet)");
+                    ui.label(RichText::new("no presets yet").color(theme::TEXT_DIM));
+                    ui.label(
+                        RichText::new("select projects, then save one →")
+                            .color(theme::TEXT_DIM)
+                            .size(11.0),
+                    );
                 }
                 let mut delete: Option<usize> = None;
                 for (i, preset) in presets.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.button(&preset.name).clicked() {
+                        if ui
+                            .button(format!("{} ({})", preset.name, preset.paths.len()))
+                            .clicked()
+                        {
                             self.selected = preset.paths.iter().cloned().collect();
                             self.status_line = format!("preset '{}' loaded", preset.name);
                             self.dirty = true;
                         }
-                        if ui.small_button("🗑").clicked() {
+                        if ui.small_button("🗑").on_hover_text("delete preset").clicked() {
                             delete = Some(i);
                         }
                     });
@@ -309,11 +366,12 @@ impl DevDeckApp {
         ui.add(
             egui::TextEdit::singleline(&mut self.new_preset_name)
                 .hint_text("preset name")
-                .desired_width(110.0),
+                .desired_width(100.0),
         );
         let can_save = !self.new_preset_name.trim().is_empty() && !self.selected.is_empty();
         if ui
-            .add_enabled(can_save, egui::Button::new("💾 Save preset"))
+            .add_enabled(can_save, egui::Button::new("💾 Save"))
+            .on_hover_text("save the current selection as a preset")
             .clicked()
         {
             let name = self.new_preset_name.trim().to_string();
@@ -369,163 +427,201 @@ impl DevDeckApp {
         idx
     }
 
+    /// Status chips summarizing "is it safe to start working here?".
+    fn status_chips(&self, ui: &mut egui::Ui, info: Option<&GitInfo>, busy: Option<&'static str>) {
+        if let Some(op) = busy {
+            ui.add(egui::Spinner::new().size(13.0).color(theme::ACCENT));
+            ui.label(RichText::new(op).color(theme::TEXT_DIM).size(11.0));
+        }
+        let Some(i) = info else {
+            theme::chip(ui, "loading…", theme::TEXT_DIM, theme::GRAY_BG);
+            return;
+        };
+        if !i.is_repo {
+            theme::chip(ui, "no git", theme::TEXT_DIM, theme::GRAY_BG);
+            return;
+        }
+        if let Some(e) = &i.error {
+            theme::chip(ui, "⚠ error", theme::RED, theme::RED_BG).on_hover_text(e);
+        }
+
+        // chips are laid out right-to-left: put the branch last so it renders leftmost
+        let safe = i.changes == 0 && i.behind == 0 && i.error.is_none();
+        if safe {
+            theme::chip(ui, "✔ ready", theme::GREEN, theme::GREEN_BG)
+                .on_hover_text("clean and up to date — safe to start working");
+        }
+        if i.ahead > 0 {
+            theme::chip(ui, &format!("↑{} unpushed", i.ahead), theme::BLUE, theme::BLUE_BG)
+                .on_hover_text("local commits not pushed yet");
+        }
+        if i.behind > 0 {
+            theme::chip(ui, &format!("↓{} pull needed", i.behind), theme::ORANGE, theme::ORANGE_BG)
+                .on_hover_text("remote has commits you don't — pull before starting work");
+        }
+        if i.changes > 0 {
+            theme::chip(ui, &format!("● {} uncommitted", i.changes), theme::AMBER, theme::AMBER_BG)
+                .on_hover_text("uncommitted changes — this repo is mid-work");
+        }
+        if !i.has_upstream && !i.detached {
+            theme::chip(ui, "no upstream", theme::TEXT_DIM, theme::GRAY_BG)
+                .on_hover_text("branch has no remote tracking branch");
+        }
+        theme::chip(ui, &i.branch.to_string(), theme::PURPLE, theme::PURPLE_BG)
+            .on_hover_text("current branch");
+    }
+
     fn project_row(&mut self, ui: &mut egui::Ui, index: usize) -> RowAction {
         let mut action = RowAction::None;
         let path = self.cfg.projects[index].path.clone();
         let info = self.git.get(&path).cloned();
         let busy = self.busy.get(path.as_str()).copied();
+        let is_selected = self.selected.contains(&path);
 
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        let (fill, stroke) = if is_selected {
+            (
+                theme::CARD_SELECTED,
+                egui::Stroke::new(1.5, theme::ACCENT),
+            )
+        } else {
+            (theme::CARD, egui::Stroke::new(1.0, theme::CARD_BORDER))
+        };
+
+        egui::Frame::none()
+            .fill(fill)
+            .stroke(stroke)
+            .rounding(egui::Rounding::same(10.0))
+            .inner_margin(egui::Margin {
+                left: 12.0,
+                right: 12.0,
+                top: 9.0,
+                bottom: 9.0,
+            })
             .show(ui, |ui| {
+                // -- row 1: select / name / chips --
                 ui.horizontal(|ui| {
-                    // selection + favorite + name
-                    let mut checked = self.selected.contains(&path);
-                    if ui.checkbox(&mut checked, "").changed() {
-                        if checked {
-                            self.selected.insert(path.clone());
-                        } else {
-                            self.selected.remove(&path);
-                        }
-                        self.dirty = true;
+                    let mut checked = is_selected;
+                    if ui.checkbox(&mut checked, "").on_hover_text("select for VS Code").changed() {
+                        self.toggle_selected(&path);
                     }
                     let project = &mut self.cfg.projects[index];
                     let star = if project.favorite { "★" } else { "☆" };
+                    let star_color = if project.favorite {
+                        theme::AMBER
+                    } else {
+                        theme::TEXT_DIM
+                    };
                     if ui
-                        .selectable_label(project.favorite, star)
-                        .on_hover_text("favorite")
+                        .button(RichText::new(star).color(star_color).size(15.0))
+                        .on_hover_text("favorite (pinned to top)")
                         .clicked()
                     {
                         project.favorite = !project.favorite;
                         self.dirty = true;
                     }
-                    ui.label(RichText::new(&project.name).strong().size(15.0));
-                    if !project.tags.trim().is_empty() {
-                        for t in project.tags.split(',').filter(|t| !t.trim().is_empty()) {
-                            ui.label(
-                                RichText::new(format!("#{}", t.trim()))
-                                    .color(Color32::from_rgb(120, 160, 220))
-                                    .size(11.0),
-                            );
-                        }
+                    // clicking the name also toggles selection — bigger target
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                RichText::new(&project.name)
+                                    .strong()
+                                    .size(15.5)
+                                    .color(theme::TEXT),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text("click to select / deselect")
+                        .clicked()
+                    {
+                        self.toggle_selected(&path);
                     }
-                    if let Some(ts) = project.last_opened {
-                        ui.label(
-                            RichText::new(time_ago(ts))
-                                .color(Color32::GRAY)
-                                .size(11.0),
+                    let project = &self.cfg.projects[index];
+                    for t in project.tags.split(',').filter(|t| !t.trim().is_empty()) {
+                        theme::chip(
+                            ui,
+                            &format!("#{}", t.trim()),
+                            theme::ACCENT,
+                            theme::GRAY_BG,
                         );
                     }
 
-                    // git badges (right-aligned)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(op) = busy {
-                            ui.add(egui::Spinner::new().size(14.0));
-                            ui.label(RichText::new(op).color(Color32::GRAY).size(11.0));
-                        }
-                        match &info {
-                            None => {
-                                ui.label(RichText::new("…").color(Color32::GRAY));
-                            }
-                            Some(i) if !i.is_repo => {
-                                ui.label(
-                                    RichText::new("not a git repo").color(Color32::GRAY),
-                                );
-                            }
-                            Some(i) => {
-                                if let Some(e) = &i.error {
-                                    ui.label(RichText::new("⚠").color(Color32::RED))
-                                        .on_hover_text(e);
-                                }
-                                if i.changes > 0 {
-                                    ui.label(
-                                        RichText::new(format!("● {} changes", i.changes))
-                                            .color(Color32::from_rgb(230, 180, 60)),
-                                    )
-                                    .on_hover_text("uncommitted changes — work in progress");
-                                } else {
-                                    ui.label(
-                                        RichText::new("clean")
-                                            .color(Color32::from_rgb(110, 190, 120)),
-                                    );
-                                }
-                                if i.behind > 0 {
-                                    ui.label(
-                                        RichText::new(format!("↓{} pull needed", i.behind))
-                                            .color(Color32::from_rgb(240, 130, 70)),
-                                    )
-                                    .on_hover_text("remote has commits you don't — pull before starting work");
-                                }
-                                if i.ahead > 0 {
-                                    ui.label(
-                                        RichText::new(format!("↑{}", i.ahead))
-                                            .color(Color32::from_rgb(120, 160, 220)),
-                                    )
-                                    .on_hover_text("local commits not pushed");
-                                }
-                                if i.has_upstream && i.ahead == 0 && i.behind == 0 {
-                                    ui.label(
-                                        RichText::new("✓ up to date")
-                                            .color(Color32::from_rgb(110, 190, 120)),
-                                    );
-                                } else if !i.has_upstream && !i.detached {
-                                    ui.label(
-                                        RichText::new("no upstream").color(Color32::GRAY),
-                                    );
-                                }
-                                ui.label(
-                                    RichText::new(format!("⎇ {}", i.branch))
-                                        .color(Color32::from_rgb(160, 140, 220))
-                                        .strong(),
-                                );
-                            }
-                        }
+                        self.status_chips(ui, info.as_ref(), busy);
                     });
                 });
 
+                // -- row 2: path + last opened --
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(&path).color(Color32::GRAY).size(11.0),
-                    );
+                    ui.add_space(2.0);
+                    ui.label(RichText::new(&path).color(theme::TEXT_DIM).size(11.0));
+                    if let Some(ts) = self.cfg.projects[index].last_opened {
+                        ui.label(
+                            RichText::new(format!("· opened {}", time_ago(ts)))
+                                .color(theme::TEXT_DIM)
+                                .size(11.0),
+                        );
+                    }
                 });
 
+                ui.add_space(2.0);
+
+                // -- row 3: actions --
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("VS Code").clicked() {
+                    if ui
+                        .button(RichText::new("💻 Code").color(theme::ACCENT))
+                        .on_hover_text("open this project in VS Code")
+                        .clicked()
+                    {
                         action = RowAction::OpenCode;
                     }
-                    if ui.button("Terminal").clicked() {
+                    if ui.button("＞ Terminal").on_hover_text("open a terminal here").clicked() {
                         action = RowAction::OpenTerminal;
                     }
-                    if ui.button("🤖 Agent").on_hover_text("launch AI agent (claude)").clicked() {
+                    if ui
+                        .button("⚡ Agent")
+                        .on_hover_text("launch the AI agent (claude) here")
+                        .clicked()
+                    {
                         action = RowAction::LaunchAgent;
                     }
-                    if ui.button("📁 Explorer").clicked() {
+                    if ui.button("🗀 Files").on_hover_text("open in Explorer").clicked() {
                         action = RowAction::OpenExplorer;
                     }
                     let is_repo = info.as_ref().map(|i| i.is_repo).unwrap_or(false);
                     if is_repo {
                         ui.separator();
-                        if ui.add_enabled(busy.is_none(), egui::Button::new("Fetch")).clicked() {
+                        if ui
+                            .add_enabled(busy.is_none(), egui::Button::new("⬇ Fetch"))
+                            .on_hover_text("git fetch — update remote state")
+                            .clicked()
+                        {
                             action = RowAction::Fetch;
                         }
-                        if ui.add_enabled(busy.is_none(), egui::Button::new("Pull")).clicked() {
+                        if ui
+                            .add_enabled(busy.is_none(), egui::Button::new("📥 Pull"))
+                            .on_hover_text("git pull --ff-only")
+                            .clicked()
+                        {
                             action = RowAction::Pull;
                         }
                         // branch switcher
                         if let Some(i) = &info {
                             if !i.branches.is_empty() && !i.detached {
-                                let current =
-                                    self.branch_sel.entry(path.clone()).or_insert_with(|| i.branch.clone());
+                                let current = self
+                                    .branch_sel
+                                    .entry(path.clone())
+                                    .or_insert_with(|| i.branch.clone());
                                 let before = current.clone();
                                 egui::ComboBox::from_id_salt(("branch", &path))
-                                    .selected_text(format!("⎇ {before}"))
-                                    .width(160.0)
+                                    .selected_text(before.clone())
+                                    .width(150.0)
                                     .show_ui(ui, |ui| {
                                         for b in &i.branches {
                                             ui.selectable_value(current, b.clone(), b);
                                         }
                                     });
-                                let after = self.branch_sel.get(&path).cloned().unwrap_or_default();
+                                let after =
+                                    self.branch_sel.get(&path).cloned().unwrap_or_default();
                                 if after != before && after != i.branch && busy.is_none() {
                                     action = RowAction::Switch;
                                 }
@@ -534,12 +630,23 @@ impl DevDeckApp {
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button(RichText::new("✖").color(theme::TEXT_DIM))
+                            .on_hover_text("remove from DevDeck (does not delete files)")
+                            .clicked()
+                        {
+                            action = RowAction::Remove;
+                        }
                         let project = &mut self.cfg.projects[index];
                         let has_notes = !project.notes.trim().is_empty();
-                        let label = if has_notes { "📝 Notes*" } else { "📝 Notes" };
+                        let label = if has_notes {
+                            RichText::new("📝 Notes ●").color(theme::AMBER)
+                        } else {
+                            RichText::new("📝 Notes").color(theme::TEXT_DIM)
+                        };
                         ui.menu_button(label, |ui| {
                             ui.set_min_width(320.0);
-                            ui.label("Notes");
+                            ui.label(RichText::new("Notes").color(theme::TEXT_DIM).size(11.5));
                             if ui
                                 .add(
                                     egui::TextEdit::multiline(&mut project.notes)
@@ -550,7 +657,11 @@ impl DevDeckApp {
                             {
                                 self.dirty = true;
                             }
-                            ui.label("Tags (comma separated)");
+                            ui.label(
+                                RichText::new("Tags (comma separated)")
+                                    .color(theme::TEXT_DIM)
+                                    .size(11.5),
+                            );
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(&mut project.tags)
@@ -561,13 +672,6 @@ impl DevDeckApp {
                                 self.dirty = true;
                             }
                         });
-                        if ui
-                            .small_button("✖")
-                            .on_hover_text("remove from DevDeck (does not delete files)")
-                            .clicked()
-                        {
-                            action = RowAction::Remove;
-                        }
                     });
                 });
             });
@@ -580,7 +684,8 @@ impl DevDeckApp {
             RowAction::OpenCode => {
                 match actions::open_in_vscode(&self.cfg.settings.vscode_cmd, &[path.clone()]) {
                     Ok(()) => {
-                        self.status_line = format!("{}: opened in VS Code", self.project_name(&path));
+                        self.status_line =
+                            format!("{}: opened in VS Code", self.project_name(&path));
                         self.mark_opened(&[path]);
                     }
                     Err(e) => self.status_line = format!("VS Code launch failed — {e}"),
@@ -640,7 +745,7 @@ impl DevDeckApp {
                 ui.text_edit_singleline(&mut self.settings_draft.agent_cmd);
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if theme::primary_button(ui, true, "Save").clicked() {
                         save = true;
                     }
                     if ui.button("Reset to defaults").clicked() {
@@ -655,6 +760,29 @@ impl DevDeckApp {
         } else if !open {
             self.show_settings = false;
         }
+    }
+
+    fn empty_state(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(90.0);
+            ui.label(RichText::new("🗀").size(48.0).color(theme::TEXT_DIM));
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("No projects yet")
+                    .size(19.0)
+                    .strong()
+                    .color(theme::TEXT),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Register local repositories to see their git status at a glance.")
+                    .color(theme::TEXT_DIM),
+            );
+            ui.add_space(14.0);
+            if theme::primary_button(ui, true, "➕ Add projects").clicked() {
+                self.add_projects();
+            }
+        });
     }
 
     fn persist_if_dirty(&mut self) {
@@ -686,53 +814,79 @@ impl eframe::App for DevDeckApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
 
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.add_space(4.0);
-            self.toolbar(ui);
-            ui.add_space(4.0);
-        });
+        egui::TopBottomPanel::top("header")
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::PANEL)
+                    .inner_margin(egui::Margin::symmetric(14.0, 10.0)),
+            )
+            .show(ctx, |ui| {
+                self.header(ui);
+                ui.add_space(6.0);
+                self.toolbar(ui);
+            });
 
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&self.status_line).size(11.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        egui::TopBottomPanel::bottom("status")
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::PANEL)
+                    .inner_margin(egui::Margin::symmetric(14.0, 5.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!(
-                            "{} projects · {} selected",
-                            self.cfg.projects.len(),
-                            self.selected.len()
-                        ))
-                        .color(Color32::GRAY)
-                        .size(11.0),
+                        RichText::new(&self.status_line)
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
                     );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{} projects · {} selected",
+                                self.cfg.projects.len(),
+                                self.selected.len()
+                            ))
+                            .color(theme::TEXT_DIM)
+                            .size(11.0),
+                        );
+                    });
                 });
             });
-        });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.cfg.projects.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(60.0);
-                    ui.label(RichText::new("No projects yet").size(18.0).strong());
-                    ui.add_space(8.0);
-                    ui.label("Click “➕ Add projects” to register local repositories.");
-                });
-                return;
-            }
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let visible = self.visible_projects();
-                    for i in visible {
-                        let path = self.cfg.projects[i].path.clone();
-                        let action = self.project_row(ui, i);
-                        if action != RowAction::None {
-                            self.apply_row_action(path, action);
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::BG)
+                    .inner_margin(egui::Margin::symmetric(14.0, 12.0)),
+            )
+            .show(ctx, |ui| {
+                if self.cfg.projects.is_empty() {
+                    self.empty_state(ui);
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let visible = self.visible_projects();
+                        if visible.is_empty() {
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(60.0);
+                                ui.label(
+                                    RichText::new("No projects match the current filter.")
+                                        .color(theme::TEXT_DIM),
+                                );
+                            });
                         }
-                        ui.add_space(4.0);
-                    }
-                });
-        });
+                        for i in visible {
+                            let path = self.cfg.projects[i].path.clone();
+                            let action = self.project_row(ui, i);
+                            if action != RowAction::None {
+                                self.apply_row_action(path, action);
+                            }
+                            ui.add_space(6.0);
+                        }
+                    });
+            });
 
         self.settings_window(ctx);
         self.persist_if_dirty();
