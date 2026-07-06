@@ -1,17 +1,26 @@
 [package]
 name = "devdeck"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "Developer Workspace Manager — a fast hub for AI-driven, multi-repo development"
 license = "MIT"
 repository = "https://github.com/atman-33/devdeck"
 
+# Desktop-only: keep the default rlib. Adding cdylib (only needed for mobile
+# targets) makes the debug DLL exceed the PE export-ordinal limit on
+# windows-gnu ("export ordinal too large").
+[lib]
+name = "devdeck_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
-eframe = "0.29"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
-rfd = "0.15"
 # rustls-based (no schannel): avoids OS revocation-check failures seen on this network
 ureq = { version = "2", features = ["json"] }
 

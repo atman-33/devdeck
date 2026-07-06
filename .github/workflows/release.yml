@@ -1,6 +1,6 @@
 # Release contract (see .claude/rules/release-process.md):
 # - triggered ONLY by pushing a tag `vX.Y.Z`
-# - the tag must equal the version in Cargo.toml (verified below)
+# - the tag must equal the version in src-tauri/Cargo.toml (verified below)
 # - assets uploaded: `devdeck.exe` (bare, required by the in-app self-updater)
 #   and `devdeck-windows-x86_64.zip` (exe + README + LICENSE)
 # Never rename these assets — installed copies download `devdeck.exe` by name.
@@ -22,24 +22,34 @@ jobs:
       - name: Verify tag matches Cargo.toml version
         shell: pwsh
         run: |
-          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $v = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           if ("v$v" -ne "${{ github.ref_name }}") {
-            throw "tag ${{ github.ref_name }} does not match Cargo.toml version v$v"
+            throw "tag ${{ github.ref_name }} does not match src-tauri/Cargo.toml version v$v"
           }
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
 
       - name: Test
+        working-directory: src-tauri
         run: cargo test
 
       - name: Build release
-        run: cargo build --release
+        run: npx tauri build --no-bundle
 
       - name: Package
         shell: pwsh
         run: |
-          Copy-Item target/release/devdeck.exe devdeck.exe
+          Copy-Item src-tauri/target/release/devdeck.exe devdeck.exe
           Compress-Archive -Path devdeck.exe, README.md, LICENSE -DestinationPath devdeck-windows-x86_64.zip
           Get-FileHash devdeck.exe, devdeck-windows-x86_64.zip -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |

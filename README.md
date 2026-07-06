@@ -48,10 +48,12 @@ and `SHA256SUMS.txt` if you prefer manual installation.
 
 ### From source
 
-Requires Rust:
+Requires Rust and Node.js 22+:
 
 ```powershell
-cargo install --path .
+npm install
+npx tauri build --no-bundle
+# -> src-tauri/target/release/devdeck.exe
 ```
 
 ### Updating
@@ -96,20 +98,23 @@ files there, which makes them open as an empty editor tab instead).
 
 ## Architecture
 
+Tauri 2: Rust backend + React frontend in a single `devdeck.exe`.
+
+Backend (`src-tauri/src/`):
+
 | Module | Responsibility |
 |---|---|
-| `app.rs` | egui UI and application state |
+| `commands.rs` | `#[tauri::command]` layer exposed to the frontend |
 | `models.rs` | domain types (`Project`, `Preset`, `Settings`, `GitInfo`, `Config`) |
 | `git.rs` | git CLI integration (`status --porcelain=v2 --branch`, fetch/pull/switch) |
 | `actions.rs` | external launches (VS Code, terminal, agent, explorer) |
 | `storage.rs` | JSON persistence |
-| `theme.rs` | dark theme, status chips |
 | `update.rs` | self-update against GitHub Releases |
+
+Frontend (`src/`): React 19, Tailwind CSS v4, shadcn/ui, lucide icons.
 
 Design notes:
 
-- **GUI**: [egui](https://github.com/emilk/egui) / eframe — pure Rust, single
-  binary, instant startup; fits the "seconds-to-decision" goal.
 - **Git**: shells out to the `git` CLI instead of libgit2, so fetch/pull reuse
   your existing credential helpers with zero auth configuration. All git calls
   run on background threads; the UI never blocks.
@@ -120,8 +125,9 @@ Design notes:
 ## Development
 
 ```powershell
-cargo test
-cargo run
+npm install
+npm run tauri dev          # app with hot reload
+cd src-tauri; cargo test   # backend unit tests
 ```
 
 ## License

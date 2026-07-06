@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.0 — 2026-07-07
+
+- UI rebuilt on Tauri 2 + React + shadcn/ui: compact one-row project list
+  (see many repos at once), hover quick actions, per-row `⋯` menu
+  (terminal / agent / explorer / fetch / pull / branch switch / notes),
+  refined dark theme, tooltips everywhere
+- Same Rust core (git CLI integration, storage, self-update) exposed as Tauri
+  commands; config file location and format unchanged — settings carry over
+- Self-update keeps the same asset contract, so 0.2.x installs update
+  seamlessly via the in-app banner
+
 ## v0.2.1 — 2026-07-07
 
 - Fix: launching VS Code no longer leaves a lingering console window open

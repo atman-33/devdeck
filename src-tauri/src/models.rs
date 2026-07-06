@@ -89,7 +89,7 @@ pub struct Config {
 }
 
 /// Live git information for one project (not persisted).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct GitInfo {
     pub is_repo: bool,
     pub branch: String,
@@ -101,26 +101,4 @@ pub struct GitInfo {
     pub changes: u32,
     pub branches: Vec<String>,
     pub error: Option<String>,
-}
-
-pub fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-/// Human-friendly "time ago" for last-opened display.
-pub fn time_ago(then: u64) -> String {
-    let now = now_unix();
-    let secs = now.saturating_sub(then);
-    if secs < 60 {
-        "just now".into()
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else {
-        format!("{}d ago", secs / 86400)
-    }
 }
