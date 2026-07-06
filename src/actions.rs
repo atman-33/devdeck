@@ -93,7 +93,8 @@ pub fn open_in_vscode(vscode_cmd: &str, paths: &[String]) -> Result<(), String> 
     sorted.sort();
     let mut hasher = DefaultHasher::new();
     sorted.hash(&mut hasher);
-    let file = storage::workspaces_dir().join(format!("devdeck-{:016x}.code-workspace", hasher.finish()));
+    let file =
+        storage::workspaces_dir().join(format!("devdeck-{:016x}.code-workspace", hasher.finish()));
 
     std::fs::create_dir_all(storage::workspaces_dir()).map_err(|e| e.to_string())?;
     let folders: Vec<serde_json::Value> = sorted
@@ -125,6 +126,9 @@ mod tests {
             fill_template("code {path}", "C:/My Projects/app"),
             r#"code "C:/My Projects/app""#
         );
-        assert_eq!(fill_template("code {path}", "C:/repos/app"), "code C:/repos/app");
+        assert_eq!(
+            fill_template("code {path}", "C:/repos/app"),
+            "code C:/repos/app"
+        );
     }
 }

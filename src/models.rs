@@ -33,6 +33,13 @@ pub struct Settings {
     pub terminal_cmd: String,
     #[serde(default = "default_agent_cmd")]
     pub agent_cmd: String,
+    /// Check GitHub Releases for a newer version on startup.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_vscode_cmd() -> String {
@@ -51,6 +58,7 @@ impl Default for Settings {
             vscode_cmd: default_vscode_cmd(),
             terminal_cmd: default_terminal_cmd(),
             agent_cmd: default_agent_cmd(),
+            check_updates: true,
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::models::{now_unix, time_ago, Config, GitInfo, Preset, Project, Settings, SortMode};
-use crate::{actions, git, storage, theme};
+use crate::{actions, git, storage, theme, update};
 use eframe::egui;
 use egui::RichText;
 use std::collections::{HashMap, HashSet};
@@ -13,6 +13,20 @@ enum Msg {
         op: &'static str,
         result: Result<String, String>,
     },
+    UpdateAvailable {
+        tag: String,
+        url: String,
+    },
+    UpdateApplied(Result<(), String>),
+}
+
+/// UI state of the self-update flow.
+enum UpdateUi {
+    Hidden,
+    Available { tag: String, url: String },
+    Downloading { tag: String },
+    Failed(String),
+    RestartPending,
 }
 
 pub struct DevDeckApp {
@@ -33,6 +47,8 @@ pub struct DevDeckApp {
     show_settings: bool,
     settings_draft: Settings,
     new_preset_name: String,
+
+    update_ui: UpdateUi,
 
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -57,11 +73,28 @@ impl DevDeckApp {
             status_line: String::new(),
             show_settings: false,
             new_preset_name: String::new(),
+            update_ui: UpdateUi::Hidden,
             tx,
             rx,
         };
         app.refresh_all();
+        app.spawn_update_check();
         app
+    }
+
+    fn spawn_update_check(&self) {
+        update::cleanup_old();
+        if !self.cfg.settings.check_updates {
+            return;
+        }
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            if let Some((tag, url)) = update::check_latest() {
+                if update::is_newer(&tag, update::current_version()) {
+                    let _ = tx.send(Msg::UpdateAvailable { tag, url });
+                }
+            }
+        });
     }
 
     // ---- background git ----
@@ -101,7 +134,11 @@ impl DevDeckApp {
                 "switch" => git::switch(&p, &branch),
                 _ => Err("unknown op".into()),
             };
-            let _ = tx.send(Msg::OpDone { path: p, op, result });
+            let _ = tx.send(Msg::OpDone {
+                path: p,
+                op,
+                result,
+            });
         });
     }
 
@@ -125,6 +162,15 @@ impl DevDeckApp {
                         Err(e) => self.status_line = format!("{name}: {op} failed — {e}"),
                     }
                     refresh_after.push(path);
+                }
+                Msg::UpdateAvailable { tag, url } => {
+                    self.update_ui = UpdateUi::Available { tag, url };
+                }
+                Msg::UpdateApplied(result) => {
+                    self.update_ui = match result {
+                        Ok(()) => UpdateUi::RestartPending,
+                        Err(e) => UpdateUi::Failed(e),
+                    };
                 }
             }
         }
@@ -222,9 +268,12 @@ impl DevDeckApp {
                     .color(theme::TEXT),
             );
             ui.label(
-                RichText::new("developer workspace manager")
-                    .size(11.5)
-                    .color(theme::TEXT_DIM),
+                RichText::new(format!(
+                    "developer workspace manager · v{}",
+                    update::current_version()
+                ))
+                .size(11.5)
+                .color(theme::TEXT_DIM),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -269,10 +318,18 @@ impl DevDeckApp {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            if ui.button("➕ Add").on_hover_text("register local project folders").clicked() {
+            if ui
+                .button("➕ Add")
+                .on_hover_text("register local project folders")
+                .clicked()
+            {
                 self.add_projects();
             }
-            if ui.button("🔄 Refresh").on_hover_text("re-read git status of all projects").clicked() {
+            if ui
+                .button("🔄 Refresh")
+                .on_hover_text("re-read git status of all projects")
+                .clicked()
+            {
                 self.refresh_all();
             }
             if ui
@@ -280,8 +337,7 @@ impl DevDeckApp {
                 .on_hover_text("git fetch every project (updates the pull-needed badges)")
                 .clicked()
             {
-                let paths: Vec<String> =
-                    self.cfg.projects.iter().map(|p| p.path.clone()).collect();
+                let paths: Vec<String> = self.cfg.projects.iter().map(|p| p.path.clone()).collect();
                 for p in paths {
                     self.run_op(&p, "fetch");
                 }
@@ -353,7 +409,11 @@ impl DevDeckApp {
                             self.status_line = format!("preset '{}' loaded", preset.name);
                             self.dirty = true;
                         }
-                        if ui.small_button("🗑").on_hover_text("delete preset").clicked() {
+                        if ui
+                            .small_button("🗑")
+                            .on_hover_text("delete preset")
+                            .clicked()
+                        {
                             delete = Some(i);
                         }
                     });
@@ -419,10 +479,15 @@ impl DevDeckApp {
             let pa = &self.cfg.projects[a];
             let pb = &self.cfg.projects[b];
             // Favorites always float to the top.
-            pb.favorite.cmp(&pa.favorite).then_with(|| match self.cfg.sort {
-                SortMode::Name => pa.name.to_lowercase().cmp(&pb.name.to_lowercase()),
-                SortMode::Recent => pb.last_opened.unwrap_or(0).cmp(&pa.last_opened.unwrap_or(0)),
-            })
+            pb.favorite
+                .cmp(&pa.favorite)
+                .then_with(|| match self.cfg.sort {
+                    SortMode::Name => pa.name.to_lowercase().cmp(&pb.name.to_lowercase()),
+                    SortMode::Recent => pb
+                        .last_opened
+                        .unwrap_or(0)
+                        .cmp(&pa.last_opened.unwrap_or(0)),
+                })
         });
         idx
     }
@@ -452,16 +517,31 @@ impl DevDeckApp {
                 .on_hover_text("clean and up to date — safe to start working");
         }
         if i.ahead > 0 {
-            theme::chip(ui, &format!("↑{} unpushed", i.ahead), theme::BLUE, theme::BLUE_BG)
-                .on_hover_text("local commits not pushed yet");
+            theme::chip(
+                ui,
+                &format!("↑{} unpushed", i.ahead),
+                theme::BLUE,
+                theme::BLUE_BG,
+            )
+            .on_hover_text("local commits not pushed yet");
         }
         if i.behind > 0 {
-            theme::chip(ui, &format!("↓{} pull needed", i.behind), theme::ORANGE, theme::ORANGE_BG)
-                .on_hover_text("remote has commits you don't — pull before starting work");
+            theme::chip(
+                ui,
+                &format!("↓{} pull needed", i.behind),
+                theme::ORANGE,
+                theme::ORANGE_BG,
+            )
+            .on_hover_text("remote has commits you don't — pull before starting work");
         }
         if i.changes > 0 {
-            theme::chip(ui, &format!("● {} uncommitted", i.changes), theme::AMBER, theme::AMBER_BG)
-                .on_hover_text("uncommitted changes — this repo is mid-work");
+            theme::chip(
+                ui,
+                &format!("● {} uncommitted", i.changes),
+                theme::AMBER,
+                theme::AMBER_BG,
+            )
+            .on_hover_text("uncommitted changes — this repo is mid-work");
         }
         if !i.has_upstream && !i.detached {
             theme::chip(ui, "no upstream", theme::TEXT_DIM, theme::GRAY_BG)
@@ -479,10 +559,7 @@ impl DevDeckApp {
         let is_selected = self.selected.contains(&path);
 
         let (fill, stroke) = if is_selected {
-            (
-                theme::CARD_SELECTED,
-                egui::Stroke::new(1.5, theme::ACCENT),
-            )
+            (theme::CARD_SELECTED, egui::Stroke::new(1.5, theme::ACCENT))
         } else {
             (theme::CARD, egui::Stroke::new(1.0, theme::CARD_BORDER))
         };
@@ -501,7 +578,11 @@ impl DevDeckApp {
                 // -- row 1: select / name / chips --
                 ui.horizontal(|ui| {
                     let mut checked = is_selected;
-                    if ui.checkbox(&mut checked, "").on_hover_text("select for VS Code").changed() {
+                    if ui
+                        .checkbox(&mut checked, "")
+                        .on_hover_text("select for VS Code")
+                        .changed()
+                    {
                         self.toggle_selected(&path);
                     }
                     let project = &mut self.cfg.projects[index];
@@ -537,12 +618,7 @@ impl DevDeckApp {
                     }
                     let project = &self.cfg.projects[index];
                     for t in project.tags.split(',').filter(|t| !t.trim().is_empty()) {
-                        theme::chip(
-                            ui,
-                            &format!("#{}", t.trim()),
-                            theme::ACCENT,
-                            theme::GRAY_BG,
-                        );
+                        theme::chip(ui, &format!("#{}", t.trim()), theme::ACCENT, theme::GRAY_BG);
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -574,7 +650,11 @@ impl DevDeckApp {
                     {
                         action = RowAction::OpenCode;
                     }
-                    if ui.button("＞ Terminal").on_hover_text("open a terminal here").clicked() {
+                    if ui
+                        .button("＞ Terminal")
+                        .on_hover_text("open a terminal here")
+                        .clicked()
+                    {
                         action = RowAction::OpenTerminal;
                     }
                     if ui
@@ -584,7 +664,11 @@ impl DevDeckApp {
                     {
                         action = RowAction::LaunchAgent;
                     }
-                    if ui.button("🗀 Files").on_hover_text("open in Explorer").clicked() {
+                    if ui
+                        .button("🗀 Files")
+                        .on_hover_text("open in Explorer")
+                        .clicked()
+                    {
                         action = RowAction::OpenExplorer;
                     }
                     let is_repo = info.as_ref().map(|i| i.is_repo).unwrap_or(false);
@@ -620,8 +704,7 @@ impl DevDeckApp {
                                             ui.selectable_value(current, b.clone(), b);
                                         }
                                     });
-                                let after =
-                                    self.branch_sel.get(&path).cloned().unwrap_or_default();
+                                let after = self.branch_sel.get(&path).cloned().unwrap_or_default();
                                 if after != before && after != i.branch && busy.is_none() {
                                     action = RowAction::Switch;
                                 }
@@ -682,7 +765,10 @@ impl DevDeckApp {
         match action {
             RowAction::None => {}
             RowAction::OpenCode => {
-                match actions::open_in_vscode(&self.cfg.settings.vscode_cmd, &[path.clone()]) {
+                match actions::open_in_vscode(
+                    &self.cfg.settings.vscode_cmd,
+                    std::slice::from_ref(&path),
+                ) {
                     Ok(()) => {
                         self.status_line =
                             format!("{}: opened in VS Code", self.project_name(&path));
@@ -700,8 +786,7 @@ impl DevDeckApp {
             RowAction::LaunchAgent => {
                 match actions::launch_agent(&self.cfg.settings.agent_cmd, &path) {
                     Ok(()) => {
-                        self.status_line =
-                            format!("{}: agent launched", self.project_name(&path));
+                        self.status_line = format!("{}: agent launched", self.project_name(&path));
                         self.mark_opened(&[path]);
                     }
                     Err(e) => self.status_line = format!("agent launch failed — {e}"),
@@ -743,6 +828,11 @@ impl DevDeckApp {
                 ui.add_space(6.0);
                 ui.label("AI agent command ({path} = project path):");
                 ui.text_edit_singleline(&mut self.settings_draft.agent_cmd);
+                ui.add_space(6.0);
+                ui.checkbox(
+                    &mut self.settings_draft.check_updates,
+                    "Check for updates on startup",
+                );
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if theme::primary_button(ui, true, "Save").clicked() {
@@ -785,6 +875,87 @@ impl DevDeckApp {
         });
     }
 
+    fn update_banner(&mut self, ctx: &egui::Context) {
+        let mut next: Option<UpdateUi> = None;
+        let mut start_download: Option<String> = None;
+        let mut restart = false;
+
+        let show = !matches!(self.update_ui, UpdateUi::Hidden);
+        if !show {
+            return;
+        }
+        egui::TopBottomPanel::top("update_banner")
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::ACCENT_DARK)
+                    .inner_margin(egui::Margin::symmetric(14.0, 7.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| match &self.update_ui {
+                    UpdateUi::Hidden => {}
+                    UpdateUi::Available { tag, url } => {
+                        ui.label(
+                            RichText::new(format!(
+                                "⬆ New version {tag} is available (current v{})",
+                                update::current_version()
+                            ))
+                            .color(egui::Color32::WHITE)
+                            .strong(),
+                        );
+                        if ui.button("Update & restart").clicked() {
+                            start_download = Some(url.clone());
+                            next = Some(UpdateUi::Downloading { tag: tag.clone() });
+                        }
+                        if ui.button("Later").clicked() {
+                            next = Some(UpdateUi::Hidden);
+                        }
+                    }
+                    UpdateUi::Downloading { tag } => {
+                        ui.add(egui::Spinner::new().size(14.0).color(egui::Color32::WHITE));
+                        ui.label(
+                            RichText::new(format!("downloading {tag}…"))
+                                .color(egui::Color32::WHITE),
+                        );
+                    }
+                    UpdateUi::RestartPending => {
+                        ui.label(
+                            RichText::new("✔ Update installed")
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                        );
+                        if ui.button("Restart now").clicked() {
+                            restart = true;
+                        }
+                    }
+                    UpdateUi::Failed(e) => {
+                        ui.label(
+                            RichText::new(format!("update failed: {e}"))
+                                .color(egui::Color32::WHITE),
+                        );
+                        if ui.button("✖").clicked() {
+                            next = Some(UpdateUi::Hidden);
+                        }
+                    }
+                });
+            });
+
+        if let Some(url) = start_download {
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(Msg::UpdateApplied(update::apply_update(&url)));
+            });
+        }
+        if let Some(n) = next {
+            self.update_ui = n;
+        }
+        if restart {
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(exe).spawn();
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
     fn persist_if_dirty(&mut self) {
         if self.dirty {
             self.cfg.selected = self.selected_paths();
@@ -810,9 +981,11 @@ enum RowAction {
 impl eframe::App for DevDeckApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_messages();
-        if !self.busy.is_empty() {
+        if !self.busy.is_empty() || matches!(self.update_ui, UpdateUi::Downloading { .. }) {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
+
+        self.update_banner(ctx);
 
         egui::TopBottomPanel::top("header")
             .frame(

@@ -6,6 +6,7 @@ mod git;
 mod models;
 mod storage;
 mod theme;
+mod update;
 
 use eframe::egui;
 

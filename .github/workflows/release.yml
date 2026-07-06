@@ -1,0 +1,55 @@
+# Release contract (see .claude/rules/release-process.md):
+# - triggered ONLY by pushing a tag `vX.Y.Z`
+# - the tag must equal the version in Cargo.toml (verified below)
+# - assets uploaded: `devdeck.exe` (bare, required by the in-app self-updater)
+#   and `devdeck-windows-x86_64.zip` (exe + README + LICENSE)
+# Never rename these assets — installed copies download `devdeck.exe` by name.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Cargo.toml version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            throw "tag ${{ github.ref_name }} does not match Cargo.toml version v$v"
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item target/release/devdeck.exe devdeck.exe
+          Compress-Archive -Path devdeck.exe, README.md, LICENSE -DestinationPath devdeck-windows-x86_64.zip
+          Get-FileHash devdeck.exe, devdeck-windows-x86_64.zip -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            devdeck.exe
+            devdeck-windows-x86_64.zip
+            SHA256SUMS.txt
+          generate_release_notes: true

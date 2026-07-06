@@ -31,10 +31,9 @@ pub const GRAY_BG: Color32 = Color32::from_rgb(0x23, 0x27, 0x31);
 pub fn apply(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
 
-    style.text_styles.insert(
-        TextStyle::Body,
-        FontId::new(13.5, FontFamily::Proportional),
-    );
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::new(13.5, FontFamily::Proportional));
     style.text_styles.insert(
         TextStyle::Button,
         FontId::new(13.5, FontFamily::Proportional),

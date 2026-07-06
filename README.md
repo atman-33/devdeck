@@ -26,19 +26,39 @@ on, open the ones you need, and resume where you left off.
 
 ## Install
 
-Requires Rust (and `git` + VS Code `code` command on PATH at runtime).
+Runtime requirements: `git` and the VS Code `code` command on PATH.
+
+### From GitHub Releases (recommended)
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\devdeck"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Invoke-WebRequest "https://github.com/atman-33/devdeck/releases/latest/download/devdeck.exe" -OutFile "$dir\devdeck.exe"
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$dir", "User")
+```
+
+Open a new terminal and run:
+
+```powershell
+devdeck
+```
+
+Each release also ships `devdeck-windows-x86_64.zip` (exe + README + LICENSE)
+and `SHA256SUMS.txt` if you prefer manual installation.
+
+### From source
+
+Requires Rust:
 
 ```powershell
 cargo install --path .
 ```
 
-This puts `devdeck.exe` in `%USERPROFILE%\.cargo\bin` (already on PATH for Rust
-users), so you can launch it from any terminal — including mid-conversation with
-an AI agent:
+### Updating
 
-```powershell
-devdeck
-```
+DevDeck checks GitHub Releases on startup. When a newer version exists, a
+banner appears at the top — click **Update & restart** and it replaces itself
+with the new version. The check can be disabled in `⚙ Settings`.
 
 ## Usage
 
@@ -83,6 +103,8 @@ files there, which makes them open as an empty editor tab instead).
 | `git.rs` | git CLI integration (`status --porcelain=v2 --branch`, fetch/pull/switch) |
 | `actions.rs` | external launches (VS Code, terminal, agent, explorer) |
 | `storage.rs` | JSON persistence |
+| `theme.rs` | dark theme, status chips |
+| `update.rs` | self-update against GitHub Releases |
 
 Design notes:
 
