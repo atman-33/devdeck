@@ -12,7 +12,14 @@ fn config_file() -> PathBuf {
 }
 
 pub fn workspaces_dir() -> PathBuf {
-    config_dir().join("workspaces")
+    // NOT under config_dir(): when a .code-workspace file lives in
+    // AppData\Roaming, a running VS Code instance fails to read it and opens
+    // an empty dirty editor tab instead of the workspace (likely antivirus
+    // folder shielding). A plain dot-folder in the home directory works.
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".devdeck")
+        .join("workspaces")
 }
 
 pub fn load() -> Config {

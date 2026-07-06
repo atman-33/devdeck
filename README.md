@@ -70,7 +70,9 @@ the project path):
 
 Everything is stored in a single human-readable JSON file:
 `%APPDATA%\devdeck\config.json`. Generated multi-root workspace files live in
-`%APPDATA%\devdeck\workspaces\`.
+`%USERPROFILE%\.devdeck\workspaces\` (not under AppData — some antivirus
+folder shielding prevents a running VS Code instance from reading workspace
+files there, which makes them open as an empty editor tab instead).
 
 ## Architecture
 
