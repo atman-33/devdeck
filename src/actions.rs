@@ -3,14 +3,22 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::process::Command;
 
-/// Launch a command line detached from this process via `cmd /C start`.
-/// Used for terminals, VS Code, and agent launches — anything that should
-/// open its own window and outlive DevDeck.
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Launch a command line via a hidden `cmd /C`, detached from DevDeck.
+/// Used for terminals, VS Code, and agent launches. No `start` and no visible
+/// console: launching a .cmd shim (like VS Code's code.cmd) through `start`
+/// opens a console window that Code.exe then keeps alive until VS Code exits.
+/// GUI targets (VS Code, Windows Terminal) create their own windows anyway.
 fn launch(command_line: &str) -> Result<(), String> {
     let mut cmd = Command::new("cmd");
-    // `start` needs an (empty) title argument before the command.
-    cmd.arg("/C").arg("start").arg("");
+    cmd.arg("/C");
     cmd.raw_arg_line(command_line);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
