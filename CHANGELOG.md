@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.0 — 2026-07-10
+
+- Project rows: "Copy path" action (dropdown item + inline icon next to the
+  path) copies the project's full path to the clipboard
+- Project rows: "Open on GitHub" dropdown action opens the repo's remote URL
+  (derived from `git remote get-url origin`, normalized to `https://`) in
+  the default browser
+
 ## v0.3.0 — 2026-07-07
 
 - UI rebuilt on Tauri 2 + React + shadcn/ui: compact one-row project list

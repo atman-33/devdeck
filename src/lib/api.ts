@@ -7,6 +7,7 @@ export const api = {
   gitStatus: (path: string) => invoke<GitInfo>("git_status", { path }),
   gitOp: (path: string, op: "fetch" | "pull" | "switch", branch?: string) =>
     invoke<string>("git_op", { path, op, branch: branch ?? null }),
+  gitRemoteUrl: (path: string) => invoke<string>("git_remote_url", { path }),
   openInVscode: (vscodeCmd: string, paths: string[]) =>
     invoke<void>("open_in_vscode", { vscodeCmd, paths }),
   openTerminal: (template: string, path: string) =>

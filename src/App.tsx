@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as pickFolders } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowDownToLine,
   FolderPlus,
@@ -219,6 +221,15 @@ export default function App() {
           break;
         case "notes":
           setNotesPath(path);
+          break;
+        case "copyPath":
+          void writeText(path.replace(/\//g, "\\")).then(() => setStatus("Copied path"));
+          break;
+        case "openRepo":
+          void api
+            .gitRemoteUrl(path)
+            .then((url) => openUrl(url))
+            .catch((e) => setStatus(`Open on GitHub failed — ${e}`));
           break;
         case "favorite":
           mutateConfig((c) => ({

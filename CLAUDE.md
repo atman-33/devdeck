@@ -10,7 +10,7 @@ agent.
 
 ```powershell
 npm install                # frontend dependencies (first time)
-npm run tauri dev          # run the app with hot reload
+npm run tauri dev          # run the app with hot reload (or: npm run tauri:dev)
 npx tauri build --no-bundle # release build -> src-tauri/target/release/devdeck.exe
 npm run build              # typecheck + build frontend only
 
@@ -31,7 +31,7 @@ Backend (`src-tauri/src/`):
 | `lib.rs` / `main.rs` | Tauri builder, command registration |
 | `commands.rs` | `#[tauri::command]` layer exposed to the frontend |
 | `models.rs` | domain types (`Project`, `Preset`, `Settings`, `GitInfo`, `Config`) |
-| `git.rs` | git CLI integration (`status --porcelain=v2 --branch`, fetch/pull/switch) |
+| `git.rs` | git CLI integration (`status --porcelain=v2 --branch`, fetch/pull/switch, remote URL) |
 | `actions.rs` | external launches (VS Code, terminal, agent, explorer) |
 | `storage.rs` | JSON persistence (`%APPDATA%\devdeck\config.json`) |
 | `update.rs` | self-update against GitHub Releases |
@@ -44,18 +44,32 @@ state and persistence; `components/ProjectRow.tsx` renders one compact row;
 Blocking work (git calls, update download) runs via
 `tauri::async_runtime::spawn_blocking` in commands — never on the UI thread.
 
+## Workflow
+
+- Do all development on a feature branch cut from `main`
+  (`feature/<short-name>`); open a PR into `main` when done. Don't commit
+  directly to `main`.
+- Any change that alters app behavior (feature or fix) bumps `version` in
+  `src-tauri/Cargo.toml` (semver: breaking → major, feature → minor,
+  fix → patch) and adds a `CHANGELOG.md` entry, as part of the same PR.
+  This is separate from *cutting a release* (tagging `vX.Y.Z` and
+  publishing) — see `.claude/rules/release-process.md` for that process.
+
 ## Rules
 
 - Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`).
 - Before committing: `cargo fmt`, `cargo clippy -- -D warnings`,
   `cargo test --release`, and `npm run build` (typecheck) must pass.
-- Releases follow `.claude/rules/release-process.md` — never create GitHub
-  releases or tags by hand without the version-bump commit, and never rename
-  release assets (the self-updater downloads `devdeck.exe` by exact name).
+- Shell out to the `git` CLI for git operations (credential helpers work for
+  free); do not introduce libgit2.
+
+<important>
 - Config compatibility: `%APPDATA%\devdeck\config.json` is read by every
   released version — only add fields with `#[serde(default)]`, never rename
   or remove existing ones.
-- Shell out to the `git` CLI for git operations (credential helpers work for
-  free); do not introduce libgit2.
 - Keep `crate-type` in `src-tauri/Cargo.toml` as plain rlib (no cdylib) —
   cdylib breaks windows-gnu debug builds ("export ordinal too large").
+- Never create GitHub releases or tags by hand without the version-bump
+  commit, and never rename release assets (the self-updater downloads
+  `devdeck.exe` by exact name) — see `.claude/rules/release-process.md`.
+</important>

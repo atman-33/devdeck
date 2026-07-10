@@ -33,6 +33,13 @@ pub async fn git_op(path: String, op: String, branch: Option<String>) -> Result<
 }
 
 #[tauri::command]
+pub async fn git_remote_url(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git::remote_url(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn open_in_vscode(vscode_cmd: String, paths: Vec<String>) -> Result<(), String> {
     actions::open_in_vscode(&vscode_cmd, &paths)
 }
