@@ -11,7 +11,9 @@ paths:
 
 `src-tauri/Cargo.toml` `version` is the single source of truth
 (`tauri.conf.json` deliberately has no version field so it falls back to
-Cargo.toml; `package.json` version is irrelevant). Releases are cut by
+Cargo.toml; `package.json` deliberately has no `version` field either — the
+in-app version display reads `CARGO_PKG_VERSION` via the `app_version`
+command, nothing reads `package.json`'s). Releases are cut by
 pushing a `vX.Y.Z` tag; `.github/workflows/release.yml` builds, packages, and
 publishes the GitHub Release automatically.
 
