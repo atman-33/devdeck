@@ -133,12 +133,11 @@ fn normalize_remote_url(raw: &str) -> Option<String> {
     {
         let (host, path) = rest.split_once('/')?;
         (host, path)
-    } else if let Some(rest) = raw.strip_prefix("git@") {
+    } else {
+        let rest = raw.strip_prefix("git@")?;
         // git@host:owner/repo(.git)
         let (host, path) = rest.split_once(':')?;
         (host, path)
-    } else {
-        return None;
     };
 
     if host.is_empty() || path.is_empty() {
