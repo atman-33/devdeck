@@ -1,8 +1,10 @@
 import { memo } from "react";
 import {
   Code2,
+  Copy,
   Download,
   Ellipsis,
+  ExternalLink,
   FolderOpen,
   GitBranch,
   Loader2,
@@ -45,6 +47,8 @@ export type RowAction =
   | { kind: "switch"; branch: string }
   | { kind: "notes" }
   | { kind: "favorite" }
+  | { kind: "copyPath" }
+  | { kind: "openRepo" }
   | { kind: "remove" };
 
 interface Props {
@@ -151,8 +155,20 @@ export const ProjectRow = memo(function ProjectRow({
         <NotebookPen className="size-3.5 shrink-0 text-amber-400/80" aria-label="has notes" />
       )}
 
-      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
-        {project.path}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="min-w-0 truncate text-[11px] text-muted-foreground/70">
+          {project.path}
+        </span>
+        <button
+          className="shrink-0 text-muted-foreground opacity-70 transition-colors hover:text-foreground group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction({ kind: "copyPath" });
+          }}
+          title="copy path"
+        >
+          <Copy className="size-3.5" />
+        </button>
       </span>
 
       {busy && <Loader2 className="size-3.5 animate-spin text-primary" />}
@@ -244,6 +260,12 @@ export const ProjectRow = memo(function ProjectRow({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onAction({ kind: "explorer" })}>
             <FolderOpen className="size-4" /> Open in Explorer
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onAction({ kind: "copyPath" })}>
+            <Copy className="size-4" /> Copy path
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onAction({ kind: "openRepo" })}>
+            <ExternalLink className="size-4" /> Open on GitHub
           </DropdownMenuItem>
           {info?.is_repo && (
             <>

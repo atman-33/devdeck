@@ -105,6 +105,55 @@ pub fn switch(path: &str, branch: &str) -> Result<String, String> {
     git(path, &["switch", branch]).map(|_| format!("switched to {branch}"))
 }
 
+/// Get the `origin` remote URL, normalized to an `https://` web URL.
+pub fn remote_url(path: &str) -> Result<String, String> {
+    let raw = git(path, &["remote", "get-url", "origin"])?;
+    normalize_remote_url(raw.trim()).ok_or_else(|| format!("unrecognized remote URL: {raw}"))
+}
+
+/// Normalize a git remote URL to an `https://host/owner/repo` web URL.
+///
+/// Handles `git@host:owner/repo.git` (SCP-like SSH), `ssh://git@host/owner/repo(.git)`,
+/// and `https://host/owner/repo(.git)` forms. Returns `None` for anything else.
+fn normalize_remote_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let (host, path) = if let Some(rest) = raw.strip_prefix("ssh://") {
+        // ssh://git@host/owner/repo(.git) — optionally with a port (ssh://git@host:22/owner/repo)
+        let rest = rest.split_once('@').map(|(_, r)| r).unwrap_or(rest);
+        let (host_port, path) = rest.split_once('/')?;
+        let host = host_port.split(':').next()?;
+        (host, path)
+    } else if let Some(rest) = raw
+        .strip_prefix("https://")
+        .or_else(|| raw.strip_prefix("http://"))
+    {
+        let (host, path) = rest.split_once('/')?;
+        (host, path)
+    } else if let Some(rest) = raw.strip_prefix("git@") {
+        // git@host:owner/repo(.git)
+        let (host, path) = rest.split_once(':')?;
+        (host, path)
+    } else {
+        return None;
+    };
+
+    if host.is_empty() || path.is_empty() {
+        return None;
+    }
+
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let path = path.trim_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+
+    Some(format!("https://{host}/{path}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +198,60 @@ mod tests {
         let info = parse_status(out);
         assert!(info.detached);
         assert_eq!(info.branch, "(detached)");
+    }
+
+    #[test]
+    fn normalizes_scp_style_ssh_url() {
+        assert_eq!(
+            normalize_remote_url("git@github.com:owner/repo.git"),
+            Some("https://github.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn normalizes_scp_style_ssh_url_without_git_suffix() {
+        assert_eq!(
+            normalize_remote_url("git@github.com:owner/repo"),
+            Some("https://github.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn normalizes_ssh_url_scheme() {
+        assert_eq!(
+            normalize_remote_url("ssh://git@github.com/owner/repo.git"),
+            Some("https://github.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn normalizes_ssh_url_scheme_with_port() {
+        assert_eq!(
+            normalize_remote_url("ssh://git@github.com:22/owner/repo.git"),
+            Some("https://github.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn normalizes_https_url_with_git_suffix() {
+        assert_eq!(
+            normalize_remote_url("https://github.com/owner/repo.git"),
+            Some("https://github.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn normalizes_https_url_without_git_suffix() {
+        assert_eq!(
+            normalize_remote_url("https://gitlab.com/owner/repo"),
+            Some("https://gitlab.com/owner/repo".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_input() {
+        assert_eq!(normalize_remote_url(""), None);
+        assert_eq!(normalize_remote_url("not a url"), None);
+        assert_eq!(normalize_remote_url("ftp://example.com/owner/repo"), None);
     }
 }
