@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FolderOpen,
   GitBranch,
+  GitCommitHorizontal,
   Loader2,
   NotebookPen,
   RefreshCw,
@@ -45,6 +46,7 @@ export type RowAction =
   | { kind: "fetch" }
   | { kind: "pull" }
   | { kind: "switch"; branch: string }
+  | { kind: "graph" }
   | { kind: "notes" }
   | { kind: "favorite" }
   | { kind: "copyPath" }
@@ -270,6 +272,9 @@ export const ProjectRow = memo(function ProjectRow({
           {info?.is_repo && (
             <>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onAction({ kind: "graph" })}>
+                <GitCommitHorizontal className="size-4" /> Commit graph
+              </DropdownMenuItem>
               <DropdownMenuItem disabled={!!busy} onClick={() => onAction({ kind: "fetch" })}>
                 <RefreshCw className="size-4" /> Fetch
               </DropdownMenuItem>
