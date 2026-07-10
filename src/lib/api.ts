@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Config, GitInfo, UpdateInfo } from "@/types";
+import type { Config, GitInfo, GitLog, GraphOp, UpdateInfo } from "@/types";
 
 export const api = {
   getConfig: () => invoke<Config>("get_config"),
@@ -8,6 +8,10 @@ export const api = {
   gitOp: (path: string, op: "fetch" | "pull" | "switch", branch?: string) =>
     invoke<string>("git_op", { path, op, branch: branch ?? null }),
   gitRemoteUrl: (path: string) => invoke<string>("git_remote_url", { path }),
+  gitLog: (path: string, limit: number, skip: number) =>
+    invoke<GitLog>("git_log", { path, limit, skip }),
+  gitGraphOp: (path: string, op: GraphOp) =>
+    invoke<string>("git_graph_op", { path, op }),
   openInVscode: (vscodeCmd: string, paths: string[]) =>
     invoke<void>("open_in_vscode", { vscodeCmd, paths }),
   openTerminal: (template: string, path: string) =>

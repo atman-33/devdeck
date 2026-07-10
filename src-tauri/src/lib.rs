@@ -16,6 +16,8 @@ pub fn run() {
             commands::save_config,
             commands::git_status,
             commands::git_op,
+            commands::git_log,
+            commands::git_graph_op,
             commands::git_remote_url,
             commands::open_in_vscode,
             commands::open_terminal,

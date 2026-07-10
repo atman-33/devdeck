@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.0 — 2026-07-10
+
+- Commit graph view (SourceTree-style): per-repo full-screen view showing the
+  commit history of all branches/tags as a colored lane graph, with a
+  synthetic row for uncommitted changes and 500-commits-a-page "Load more"
+- Right-click context menus on commits (copy hash/message, create branch/tag
+  here, cherry-pick, reset soft/mixed/hard) and on branch/tag badges
+  (checkout, merge into current, rebase current onto branch, delete
+  branch/tag, with force-delete retry when not fully merged)
+- Graph header actions: fetch / pull (ff-only) / push / refresh; destructive
+  operations gated behind confirmation dialogs; merge/rebase/cherry-pick
+  conflicts auto-abort and restore the repository
+- Entry point: "Commit graph" in each project row's `⋯` menu
+
 ## v0.4.0 — 2026-07-10
 
 - Project rows: "Copy path" action (dropdown item + inline icon next to the

@@ -102,3 +102,75 @@ pub struct GitInfo {
     pub branches: Vec<String>,
     pub error: Option<String>,
 }
+
+/// A branch/remote/tag/HEAD decoration attached to a commit.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitRef {
+    pub name: String,
+    /// "branch" | "remote" | "tag" | "head"
+    pub kind: String,
+    pub is_head: bool,
+}
+
+/// One row of `git log` output.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitEntry {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub date: i64,
+    pub refs: Vec<CommitRef>,
+    pub subject: String,
+}
+
+/// A page of commit history plus repo-level context for the graph view.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct GitLog {
+    pub commits: Vec<CommitEntry>,
+    pub head: String,
+    pub current_branch: String,
+    pub uncommitted: u32,
+    pub has_more: bool,
+}
+
+/// A graph-view git operation. Parameters vary per kind, so this is dispatched
+/// via a tagged enum rather than a free-form op string (see `git_op`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GraphOp {
+    Checkout {
+        branch: String,
+    },
+    CreateBranch {
+        name: String,
+        hash: String,
+        checkout: bool,
+    },
+    DeleteBranch {
+        name: String,
+        force: bool,
+    },
+    Merge {
+        branch: String,
+    },
+    Rebase {
+        branch: String,
+    },
+    Push,
+    Pull,
+    Fetch,
+    Reset {
+        hash: String,
+        mode: String,
+    },
+    CherryPick {
+        hash: String,
+    },
+    CreateTag {
+        name: String,
+        hash: String,
+    },
+    DeleteTag {
+        name: String,
+    },
+}

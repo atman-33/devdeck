@@ -46,3 +46,40 @@ export interface UpdateInfo {
   tag: string;
   url: string;
 }
+
+export interface CommitRef {
+  name: string;
+  kind: "branch" | "remote" | "tag" | "head";
+  is_head: boolean;
+}
+
+export interface CommitEntry {
+  hash: string;
+  parents: string[];
+  author: string;
+  date: number;
+  refs: CommitRef[];
+  subject: string;
+}
+
+export interface GitLog {
+  commits: CommitEntry[];
+  head: string;
+  current_branch: string;
+  uncommitted: number;
+  has_more: boolean;
+}
+
+export type GraphOp =
+  | { kind: "checkout"; branch: string }
+  | { kind: "create_branch"; name: string; hash: string; checkout: boolean }
+  | { kind: "delete_branch"; name: string; force: boolean }
+  | { kind: "merge"; branch: string }
+  | { kind: "rebase"; branch: string }
+  | { kind: "push" }
+  | { kind: "pull" }
+  | { kind: "fetch" }
+  | { kind: "reset"; hash: string; mode: "soft" | "mixed" | "hard" }
+  | { kind: "cherry_pick"; hash: string }
+  | { kind: "create_tag"; name: string; hash: string }
+  | { kind: "delete_tag"; name: string };

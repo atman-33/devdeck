@@ -1,4 +1,4 @@
-use crate::models::{Config, GitInfo};
+use crate::models::{Config, GitInfo, GitLog, GraphOp};
 use crate::{actions, git, storage, update};
 use serde::Serialize;
 
@@ -30,6 +30,23 @@ pub async fn git_op(path: String, op: String, branch: Option<String>) -> Result<
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Read a page of commit history for the graph view.
+#[tauri::command]
+pub async fn git_log(path: String, limit: u32, skip: u32) -> Result<GitLog, String> {
+    tauri::async_runtime::spawn_blocking(move || git::read_log(&path, limit, skip))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Run a graph-view git operation (checkout, branch/tag create-delete, merge,
+/// rebase, push/pull/fetch, reset, cherry-pick).
+#[tauri::command]
+pub async fn git_graph_op(path: String, op: GraphOp) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git::graph_op(&path, op))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
